@@ -52,10 +52,6 @@ void medianFilter(FILE *inputFile, FILE *outputFile) {
 int main(int argc, char **argv[])
 {
     
-    /** 
-     * TODO: Implementar entrada de arquivos como argumento
-    */
-
     FILE *bmpImage;
     FILE *outputImage;
     HEADER bmpHeader;
@@ -90,17 +86,20 @@ int main(int argc, char **argv[])
 
     fread(&bmpHeader, sizeof(HEADER), 1, bmpImage);
     
+    //====== PARA DEBUG ======//
     printf("Tamanho da imagem: %u\n", bmpHeader.fileSize);
 	printf("Largura: %d\n", bmpHeader.width);
 	printf("Altura: %d\n", bmpHeader.height);
 	printf("Bits por pixel: %d\n", bmpHeader.bits);
+    //=======================//
 
     int rows = bmpHeader.height;
     int cols = bmpHeader.width;
 
     int arrayLenght = rows*cols;
-    int **Matrix = (int **)malloc(rows*sizeof(int *));
 
+    // aloca matriz dinamicamente
+    int **Matrix = (int **)malloc(rows*sizeof(int *));
     for (int i = 0; i < rows; i++)
         Matrix[i] = (int *)malloc(cols*sizeof(int));
 
