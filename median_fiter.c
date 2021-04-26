@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-
+#include <string.h>
 #include <unistd.h>
 #include <sys/shm.h>
 // #include <sys/wait.h>
@@ -48,9 +48,10 @@ typedef struct bmpHeader
 
 } HEADER;
 
-void medianFilter(int *imageArray, int rows, int cols, int seq, int np, int mask);
-void mapImageToMatrix(HEADER *header, PIXEL **pixelMap, FILE *file, int **Matrix, int rows, int cols);
-int freeImageMatrix(int **Matrix, int rows);
+void medianFilter(int *imageArray, int rows, int cols, int sequential, int numProcesses, int mask);
+void mapImageToMatrix(HEADER *header, PIXEL **pixelMap, FILE *file, int **imageMatrix, int rows, int cols);
+void mapMatrixToArray(int **imageMatrix, int *array, int rows, int cols);
+int freeImageMatrix(int **imageMatrix, int rows);
 void error(char filePath[50]);
 
 int cmpfunc(const void *a, const void *b)
@@ -67,8 +68,8 @@ int main(int argc, char **argv[])
     PIXEL pixel;
 
     // char inputFilePath[50], outputFilePath[50];
-    // int np;
-    // np             = argv[1];
+    // int numProcesses;
+    // numProcesses             = argv[1];
     // inputFilePath  = argv[2];
     // outputFilePath = argv[3];
 
@@ -77,8 +78,8 @@ int main(int argc, char **argv[])
     //     exit(0);
     // }
 
-    char inputFilePath[50] = "images/output2.bmp";
-    char outputFilePath[50] = "images/testeLena.bmp";
+    char inputFilePath[50] = "images/salt-and-pepper-borboleta.bmp";
+    char outputFilePath[50] = "images/testeBorboleta.bmp";
 
     int shmid;
     int key = 4;
@@ -102,25 +103,24 @@ int main(int argc, char **argv[])
     int rows = bmpHeader.height;
     int cols = bmpHeader.width;
     int arrayLenght = rows * cols;
-    printf("Rows Cols Length: %d %d %d\n", rows, cols, arrayLenght);
 
     // aloca matriz dinamicamente
-    int **Matrix = (int **)malloc(rows * sizeof(int *));
+    int **imageMatrix = (int **)malloc(rows * sizeof(int *));
     for (int i = 0; i < rows; i++)
-        Matrix[i] = (int *)malloc(cols * sizeof(int));
+        imageMatrix[i] = (int *)malloc(cols * sizeof(int));
 
     // mapeia pixeis em matrix de pixeis
     PIXEL **pixelMap = (PIXEL **)malloc(sizeof(PIXEL *) * rows);
     for (int i = 0; i < bmpHeader.height; i++)
         pixelMap[i] = (PIXEL *)malloc(sizeof(PIXEL) * bmpHeader.width);
 
-    int *imageMatrixVector; //poderia ser um array de pixeis...
-    imageMatrixVector = malloc(sizeof(int) * arrayLenght);
+    int *imageMatrixArray; //poderia ser um array de pixeis...
+    imageMatrixArray = malloc(sizeof(int) * arrayLenght);
 
-    mapImageToMatrix(&bmpHeader, pixelMap, bmpImage, Matrix, rows, cols);
-    mapMatrixToArray(Matrix, imageMatrixVector, rows, cols);
+    mapImageToMatrix(&bmpHeader, pixelMap, bmpImage, imageMatrix, rows, cols);
+    mapMatrixToArray(imageMatrix, imageMatrixArray, rows, cols);
 
-    medianFilter(imageMatrixVector, rows, cols, 0, 1, 3);
+    medianFilter(imageMatrixArray, rows, cols, 0, 1, 3);
 
     int arrayIndex;
     for (int i = 0; i < rows; i++)
@@ -130,65 +130,66 @@ int main(int argc, char **argv[])
 
             arrayIndex = i * cols + j;
 
-            pixelMap[i][j].red = imageMatrixVector[arrayIndex];
-            pixelMap[i][j].green = imageMatrixVector[arrayIndex];
-            pixelMap[i][j].blue = imageMatrixVector[arrayIndex];
+            pixelMap[i][j].red = imageMatrixArray[arrayIndex];
+            pixelMap[i][j].green = imageMatrixArray[arrayIndex];
+            pixelMap[i][j].blue = imageMatrixArray[arrayIndex];
             fwrite(&pixelMap[i][j], sizeof(PIXEL), 1, outputImage);
         }
     }
 
-    freeImageMatrix(Matrix, rows);
+    freeImageMatrix(imageMatrix, rows);
     fclose(bmpImage);
     fclose(outputImage);
     return 0;
 }
 
-void medianFilter(int *imageArray, int rows, int cols, int seq, int np, int mask)
+void medianFilter(int *imageArray, int rows, int cols, int sequential, int numProcesses, int mask)
 {
 
-    int offset = cols * seq;
+    int offset = cols * sequential;
     int arrayLength = cols * rows;
     int maskSize = mask * mask;
+    int maskArray[maskSize];
+    int maskOffsetFromStart = mask / 2;
 
     while (offset < arrayLength)
     {
-        // printf("Offset: %d\n", offset);
         for (int arrayIndex = offset, col = 0; col < cols; col++, arrayIndex++)
         {
 
-            int maskArray[maskSize];
             memset(maskArray, 0, maskSize * sizeof(int));
 
-            int halfMask = mask / 2;
-            int maskStartRow = MAX(offset / rows - halfMask, 0);
-            int maskStartCol = MAX(col - halfMask, 0);
+            int maskStartingRow = MAX(offset / rows - maskOffsetFromStart, 0);
+            int maskStartingCol = MAX(col - maskOffsetFromStart, 0);
 
-            int maskStartArrayIndex = maskStartRow * cols + maskStartCol;
-            int maskStart = MAX(maskStartArrayIndex, 0);
+            int maskStartingIndexInArray = maskStartingRow * cols + maskStartingCol;
+
             int i = 0;
-
-            for (int maskRow = maskStartRow, j = 0; j < mask; j++, maskRow++)
+            // fiz uma lógica meio louca para achar um ponto valido da máscara no array.
+            // pensei numa maneira de simular que estamos navegando uma matriz, sendo que 
+            // na verdade temos apenas um array.
+            for (int maskRow = maskStartingRow, j = 0; j < mask; j++, maskRow++)
             {
-
-                for (int maskCol = maskStartCol, k = 0; k < mask; k++, maskCol++)
+                for (int maskCol = maskStartingCol, k = 0; k < mask; k++, maskCol++)
                 {
                     int arrayIndex = maskRow * cols + maskCol;
                     maskArray[i++] = imageArray[arrayIndex];
                 }
             }
 
+            // ordena nosso array de valor para extrairmos a mediana 
             qsort(maskArray, maskSize, sizeof(int), cmpfunc);
 
             int newValue = maskArray[maskSize / 2];
             imageArray[arrayIndex] = newValue;
         }
 
-        seq = seq + np;
-        offset = cols * seq;
+        sequential = sequential + numProcesses;
+        offset = cols * sequential;
     }
 }
 
-void mapImageToMatrix(HEADER *header, PIXEL **pixelMap, FILE *file, int **Matrix, int rows, int cols)
+void mapImageToMatrix(HEADER *header, PIXEL **pixelMap, FILE *file, int **imageMatrix, int rows, int cols)
 {
 
     /**
@@ -212,12 +213,12 @@ void mapImageToMatrix(HEADER *header, PIXEL **pixelMap, FILE *file, int **Matrix
         for (int j = 0; j < header->width; j++)
         {
             average = (pixelMap[i][j].red + pixelMap[i][j].green + pixelMap[i][j].blue) / 3;
-            Matrix[i][j] = average;
+            imageMatrix[i][j] = average;
         }
     }
 }
 
-void mapMatrixToArray(int **Matrix, int *array, int rows, int cols)
+void mapMatrixToArray(int **imageMatrix, int *array, int rows, int cols)
 {
     int arrayIndex;
 
@@ -226,20 +227,20 @@ void mapMatrixToArray(int **Matrix, int *array, int rows, int cols)
         for (int j = 0; j < cols; j++)
         {
             arrayIndex = i * cols + j;
-            array[arrayIndex] = Matrix[i][j];
+            array[arrayIndex] = imageMatrix[i][j];
         }
     }
 }
 
-int freeImageMatrix(int **Matrix, int rows)
+int freeImageMatrix(int **imageMatrix, int rows)
 {
 
     for (int i = 0; i < rows; i++)
     {
-        free(Matrix[i]);
+        free(imageMatrix[i]);
     }
 
-    free(Matrix);
+    free(imageMatrix);
 }
 
 void printFileDetails(HEADER *header)
