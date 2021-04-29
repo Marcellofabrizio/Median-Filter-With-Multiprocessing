@@ -58,7 +58,7 @@ int cmpfunc(const void *a, const void *b)
 { 
     int totalA = ( ((PIXEL*)a)->red + ((PIXEL*)a)->green + ((PIXEL*)a)->blue )/3;
     int totalB = ( ((PIXEL*)b)->red + ((PIXEL*)b)->green + ((PIXEL*)b)->blue )/3;
-    return totalA - totalB;
+    return totalB - totalA;
 }
 
 int main(int argc, char **argv[])
@@ -181,10 +181,7 @@ void medianFilter(PIXEL *imageArray, int rows, int cols, int sequential, int num
             // ordena nosso array de valor para extrairmos a mediana 
             // cmpfunc poder estar errada
 
-            qsort(maskArray, maskSize, sizeof(int), cmpfunc);
-            printf("\n");
-            for (int i = 0; i < maskSize; i++)
-                printf(" %d\n", (maskArray[i].red + maskArray[i].green + maskArray[i].blue)/3);
+            qsort(maskArray, maskSize, sizeof(PIXEL), cmpfunc);
             PIXEL newValue = { 0, 0, 0 };
             newValue.red = maskArray[maskSize / 2].red;
             newValue.green = maskArray[maskSize / 2].green;
