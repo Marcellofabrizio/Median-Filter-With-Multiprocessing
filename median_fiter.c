@@ -12,6 +12,8 @@
 #pragma pack(push, 1) /* diz pro compilador não alterar alinhamento \
                          ou tamanho da struct */
 
+char aux;
+
 typedef struct pixel
 {
     uint8_t blue;
@@ -55,9 +57,9 @@ int freeImageMatrix(int **imageMatrix, int rows);
 void error(char filePath[50]);
 
 int cmpfunc(const void *a, const void *b)
-{ 
-    int totalA = ( ((PIXEL*)a)->red + ((PIXEL*)a)->green + ((PIXEL*)a)->blue )/3;
-    int totalB = ( ((PIXEL*)b)->red + ((PIXEL*)b)->green + ((PIXEL*)b)->blue )/3;
+{
+    int totalA = (((PIXEL *)a)->red + ((PIXEL *)a)->green + ((PIXEL *)a)->blue) / 3;
+    int totalB = (((PIXEL *)b)->red + ((PIXEL *)b)->green + ((PIXEL *)b)->blue) / 3;
     return totalB - totalA;
 }
 
@@ -80,8 +82,8 @@ int main(int argc, char **argv[])
     //     exit(0);
     // }
 
-    char inputFilePath[50] = "images/output2.bmp";
-    char outputFilePath[50] = "images/teste-com-cor.bmp";
+    char inputFilePath[50] = "images/saltPepperLena.bmp";
+    char outputFilePath[50] = "images/testeLena3.bmp";
 
     int shmid;
     int key = 4;
@@ -116,26 +118,38 @@ int main(int argc, char **argv[])
     for (int i = 0; i < bmpHeader.height; i++)
         pixelMap[i] = (PIXEL *)malloc(sizeof(PIXEL) * bmpHeader.width);
 
-
     PIXEL *pixels;
     shmid = shmget(key, sizeof(PIXEL) * arrayLenght, IPC_CREAT | 0644);
     pixels = (PIXEL *)shmat(shmid, NULL, 0);
 
-    mapImageToArray(&bmpHeader, pixelMap, bmpImage, pixels);    
+    mapImageToArray(&bmpHeader, pixelMap, bmpImage, pixels);
     medianFilter(pixels, rows, cols, 0, 1, 3);
 
     int arrayIndex;
     for (int i = 0; i < rows; i++)
     {
+
+        int ali = (cols * 3) % 4; // ?????
+
+        if (ali != 0)
+        {
+            ali = 4 - ali;
+        }
+
         for (int j = 0; j < cols; j++)
         {
 
             arrayIndex = i * cols + j;
 
-            pixelMap[i][j].red   = pixels[arrayIndex].red;
+            pixelMap[i][j].red = pixels[arrayIndex].red;
             pixelMap[i][j].green = pixels[arrayIndex].green;
-            pixelMap[i][j].blue  = pixels[arrayIndex].blue;
+            pixelMap[i][j].blue = pixels[arrayIndex].blue;
             fwrite(&pixelMap[i][j], sizeof(PIXEL), 1, outputImage);
+        }
+
+        for (int j = 0; j < ali; j++)
+        {
+            fwrite(&aux, sizeof(unsigned char), 1, outputFilePath);
         }
     }
 
@@ -158,7 +172,7 @@ void medianFilter(PIXEL *imageArray, int rows, int cols, int sequential, int num
     {
         for (int arrayIndex = offset, col = 0; col < cols; col++, arrayIndex++)
         {
-            maskArray = (PIXEL*) realloc(maskArray, maskSize*sizeof(PIXEL));
+            maskArray = (PIXEL *)realloc(maskArray, maskSize * sizeof(PIXEL));
 
             int maskStartingRow = MAX(offset / rows - maskOffsetFromStart, 0);
             int maskStartingCol = MAX(col - maskOffsetFromStart, 0);
@@ -167,7 +181,7 @@ void medianFilter(PIXEL *imageArray, int rows, int cols, int sequential, int num
 
             int i = 0;
             // fiz uma lógica para achar um ponto valido da máscara no array.
-            // pensei numa maneira de simular que estamos navegando uma matriz, sendo que 
+            // pensei numa maneira de simular que estamos navegando uma matriz, sendo que
             // na verdade temos apenas um array.
             for (int maskRow = maskStartingRow, j = 0; j < mask && j < rows; j++, maskRow++)
             {
@@ -178,19 +192,18 @@ void medianFilter(PIXEL *imageArray, int rows, int cols, int sequential, int num
                 }
             }
 
-            // ordena nosso array de valor para extrairmos a mediana 
+            // ordena nosso array de valor para extrairmos a mediana
             // cmpfunc poder estar errada
 
             qsort(maskArray, maskSize, sizeof(PIXEL), cmpfunc);
-            PIXEL newValue = { 0, 0, 0 };
+            PIXEL newValue = {0, 0, 0};
             newValue.red = maskArray[maskSize / 2].red;
             newValue.green = maskArray[maskSize / 2].green;
             newValue.blue = maskArray[maskSize / 2].blue;
-            
-            imageArray[arrayIndex].red   = newValue.red;
-            imageArray[arrayIndex].green = newValue.green;
-            imageArray[arrayIndex].blue  = newValue.blue;
 
+            imageArray[arrayIndex].red = newValue.red;
+            imageArray[arrayIndex].green = newValue.green;
+            imageArray[arrayIndex].blue = newValue.blue;
         }
 
         sequential = sequential + numProcesses;
@@ -217,15 +230,27 @@ void mapImageToArray(HEADER *header, PIXEL **pixelMap, FILE *file, PIXEL *pixels
         }
     }
 
+    int ali = (header->width * 3) % 4; // ?????
+
+    if (ali != 0)
+    {
+        ali = 4 - ali;
+    }
+
     for (int i = 0; i < header->height; i++)
     {
         for (int j = 0; j < header->width; j++)
         {
             arrayIndex = i * header->width + j;
-            pixels[arrayIndex].red   = pixelMap[i][j].red;
+            pixels[arrayIndex].red = pixelMap[i][j].red;
             pixels[arrayIndex].green = pixelMap[i][j].green;
-            pixels[arrayIndex].blue  = pixelMap[i][j].blue;
+            pixels[arrayIndex].blue = pixelMap[i][j].blue;
         }
+    }
+
+    for (int j = 0; j < ali; j++)
+    {
+        fread(&aux, sizeof(unsigned char), 1, file);
     }
 }
 
