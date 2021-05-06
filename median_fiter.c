@@ -50,14 +50,19 @@ typedef struct bmpHeader
 
 } HEADER;
 
+// ========================================== PROTÓTIPOS ==========================================
+FILE *openFile(char filePath[50], char mode[3]);
+void printFileDetails(HEADER header);
+void allocPixelImageMatrix(PIXEL ***pixelBitmap, int rows, int cols);
+void deallocPixelBitmap(PIXEL **pixelBitmap, int rows);
 void medianFilter(PIXEL *imageArray, int rows, int cols, int sequential, int numProcesses, int mask);
-void mapImageToArray(HEADER *header, PIXEL **pixelMap, FILE *file, PIXEL *pixels);
-void mapMatrixToArray(int **imageMatrix, int *array, int rows, int cols);
-int freeImageMatrix(int **imageMatrix, int rows);
+void mapImageToArray(HEADER *header, PIXEL **pixelBitmap, PIXEL *pixels, FILE *file, FILE *fileout);
 void error(char filePath[50]);
+// =================================================================================================
 
 int cmpfunc(const void *a, const void *b)
 {
+    // função de comparação para o quick sort
     int totalA = (((PIXEL *)a)->red + ((PIXEL *)a)->green + ((PIXEL *)a)->blue) / 3;
     int totalB = (((PIXEL *)b)->red + ((PIXEL *)b)->green + ((PIXEL *)b)->blue) / 3;
     return totalB - totalA;
@@ -65,11 +70,6 @@ int cmpfunc(const void *a, const void *b)
 
 int main(int argc, char **argv[])
 {
-
-    FILE *bmpImage;
-    FILE *outputImage;
-    HEADER bmpHeader;
-    PIXEL pixel;
 
     // char inputFilePath[50], outputFilePath[50];
     // int numProcesses;
@@ -82,23 +82,20 @@ int main(int argc, char **argv[])
     //     exit(0);
     // }
 
-    char inputFilePath[50] = "images/saltPepperLena.bmp";
-    char outputFilePath[50] = "images/testeLena3.bmp";
+    FILE *bmpImage;
+    FILE *outputImage;
+    HEADER bmpHeader;
+    PIXEL pixel;
+
+    char inputFilePath[50] = "images/teste2.bmp";
+    char outputFilePath[50] = "images/teste1.bmp";
 
     int shmid;
     int key = 4;
 
-    bmpImage = fopen(inputFilePath, "rb");
-    if (bmpImage == NULL)
-    {
-        error(inputFilePath);
-    }
+    bmpImage = openFile(inputFilePath, "rb");
 
-    outputImage = fopen(outputFilePath, "wb");
-    if (outputImage == NULL)
-    {
-        error(outputFilePath);
-    }
+    outputImage = openFile(outputFilePath, "wb");
 
     fread(&bmpHeader, sizeof(HEADER), 1, bmpImage);
 
@@ -108,32 +105,27 @@ int main(int argc, char **argv[])
     int cols = bmpHeader.width;
     int arrayLenght = rows * cols;
 
-    // aloca matriz dinamicamente
-    int **imageMatrix = (int **)malloc(rows * sizeof(int *));
-    for (int i = 0; i < rows; i++)
-        imageMatrix[i] = (int *)malloc(cols * sizeof(int));
+    PIXEL **pixelBitmap = NULL;
+    allocPixelImageMatrix(&pixelBitmap, rows, cols);
 
-    // mapeia pixeis em matrix de pixeis
-    PIXEL **pixelMap = (PIXEL **)malloc(sizeof(PIXEL *) * rows);
-    for (int i = 0; i < bmpHeader.height; i++)
-        pixelMap[i] = (PIXEL *)malloc(sizeof(PIXEL) * bmpHeader.width);
+    PIXEL *pixels = malloc(sizeof(PIXEL) * arrayLenght);
+    //shmid = shmget(key, sizeof(PIXEL) * arrayLenght, IPC_CREAT | 0644);
+    //pixels = (PIXEL *)shmat(shmid, NULL, 0);
 
-    PIXEL *pixels;
-    shmid = shmget(key, sizeof(PIXEL) * arrayLenght, IPC_CREAT | 0644);
-    pixels = (PIXEL *)shmat(shmid, NULL, 0);
+    mapImageToArray(&bmpHeader, pixelBitmap, pixels, bmpImage, outputImage);
 
-    mapImageToArray(&bmpHeader, pixelMap, bmpImage, pixels);
+    //===== FAZER EM MULTIPROCESSAMENTO =====
     medianFilter(pixels, rows, cols, 0, 1, 3);
+    //=======================================
 
     int arrayIndex;
     for (int i = 0; i < rows; i++)
     {
 
-        int ali = (cols * 3) % 4; // ?????
-
-        if (ali != 0)
+        int alignment = (cols * 3) % 4;
+        if (alignment != 0)
         {
-            ali = 4 - ali;
+            alignment = 4 - alignment;
         }
 
         for (int j = 0; j < cols; j++)
@@ -141,22 +133,32 @@ int main(int argc, char **argv[])
 
             arrayIndex = i * cols + j;
 
-            pixelMap[i][j].red = pixels[arrayIndex].red;
-            pixelMap[i][j].green = pixels[arrayIndex].green;
-            pixelMap[i][j].blue = pixels[arrayIndex].blue;
-            fwrite(&pixelMap[i][j], sizeof(PIXEL), 1, outputImage);
+            pixelBitmap[i][j].red = pixels[arrayIndex].red;
+            pixelBitmap[i][j].green = pixels[arrayIndex].green;
+            pixelBitmap[i][j].blue = pixels[arrayIndex].blue;
+            fwrite(&pixelBitmap[i][j], sizeof(PIXEL), 1, outputImage);
         }
 
-        for (int j = 0; j < ali; j++)
+        for (int j = 0; j < alignment; j++)
         {
-            fwrite(&aux, sizeof(unsigned char), 1, outputFilePath);
+            fread(&aux, sizeof(unsigned char), 1, bmpImage);
+            fwrite(&aux, sizeof(unsigned char), 1, outputImage);
         }
     }
 
-    freeImageMatrix(imageMatrix, rows);
+    deallocPixelBitmap(pixelBitmap, rows);
     fclose(bmpImage);
     fclose(outputImage);
     return 0;
+}
+
+FILE *openFile(char filePath[50], char mode[3])
+{
+    FILE *file = fopen(filePath, mode);
+    if (file == NULL)
+    {
+        error(filePath);
+    }
 }
 
 void medianFilter(PIXEL *imageArray, int rows, int cols, int sequential, int numProcesses, int mask)
@@ -193,7 +195,6 @@ void medianFilter(PIXEL *imageArray, int rows, int cols, int sequential, int num
             }
 
             // ordena nosso array de valor para extrairmos a mediana
-            // cmpfunc poder estar errada
 
             qsort(maskArray, maskSize, sizeof(PIXEL), cmpfunc);
             PIXEL newValue = {0, 0, 0};
@@ -211,7 +212,7 @@ void medianFilter(PIXEL *imageArray, int rows, int cols, int sequential, int num
     }
 }
 
-void mapImageToArray(HEADER *header, PIXEL **pixelMap, FILE *file, PIXEL *pixels)
+void mapImageToArray(HEADER *header, PIXEL **pixelBitmap, PIXEL *pixels, FILE *file, FILE *fileout)
 {
 
     /**
@@ -222,70 +223,69 @@ void mapImageToArray(HEADER *header, PIXEL **pixelMap, FILE *file, PIXEL *pixels
     int average;
     int arrayIndex;
 
+
     for (int i = 0; i < header->height; i++)
     {
         for (int j = 0; j < header->width; j++)
         {
-            fread(&pixelMap[i][j], sizeof(PIXEL), 1, file);
+            fread(&pixelBitmap[i][j], sizeof(PIXEL), 1, file);
         }
     }
 
-    int ali = (header->width * 3) % 4; // ?????
 
-    if (ali != 0)
+    int alignment = (header->width * 3) % 4;
+
+    if (alignment != 0)
     {
-        ali = 4 - ali;
+        alignment = 4 - alignment;
     }
+
+    printFileDetails((*header));
 
     for (int i = 0; i < header->height; i++)
     {
         for (int j = 0; j < header->width; j++)
         {
             arrayIndex = i * header->width + j;
-            pixels[arrayIndex].red = pixelMap[i][j].red;
-            pixels[arrayIndex].green = pixelMap[i][j].green;
-            pixels[arrayIndex].blue = pixelMap[i][j].blue;
+            pixels[arrayIndex].red = pixelBitmap[i][j].red;
+            pixels[arrayIndex].green = pixelBitmap[i][j].green;
+            pixels[arrayIndex].blue = pixelBitmap[i][j].blue;
         }
     }
 
-    for (int j = 0; j < ali; j++)
+    for (int j = 0; j < alignment; j++)
     {
         fread(&aux, sizeof(unsigned char), 1, file);
     }
 }
 
-void mapMatrixToArray(int **imageMatrix, int *array, int rows, int cols)
-{
-    int arrayIndex;
 
-    for (int i = 0; i < rows; i++)
-    {
-        for (int j = 0; j < cols; j++)
-        {
-            arrayIndex = i * cols + j;
-            array[arrayIndex] = imageMatrix[i][j];
-        }
-    }
+void allocPixelImageMatrix(PIXEL ***pixelBitmap, int rows, int cols)
+{
+    // Aloca dinamicamente uma matrix de pixels
+    int i = 0;
+    *pixelBitmap = (PIXEL **)malloc(sizeof(PIXEL *) * rows);
+    for (i = 0; i < rows; i++)
+        (*pixelBitmap)[i] = (PIXEL *)malloc(sizeof(PIXEL) * cols);
 }
 
-int freeImageMatrix(int **imageMatrix, int rows)
+void deallocPixelBitmap(PIXEL **pixelBitmap, int rows)
 {
-
     for (int i = 0; i < rows; i++)
     {
-        free(imageMatrix[i]);
+        free(pixelBitmap[i]);
     }
 
-    free(imageMatrix);
+    free(pixelBitmap);
 }
 
-void printFileDetails(HEADER *header)
+void printFileDetails(HEADER header)
 {
     //====== PARA DEBUG ======//
-    printf("Tamanho da imagem: %u\n", header->fileSize);
-    printf("Largura: %d\n", header->width);
-    printf("Altura: %d\n", header->height);
-    printf("Bits por pixel: %d\n", header->bits);
+    printf("Tamanho da imagem: %u\n", header.fileSize);
+    printf("Largura: %d\n", header.width);
+    printf("Altura: %d\n", header.height);
+    printf("Bits por pixel: %d\n", header.bits);
 }
 
 void error(char filePath[50])
