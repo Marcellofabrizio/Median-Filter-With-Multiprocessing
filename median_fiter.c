@@ -85,10 +85,9 @@ int main(int argc, char **argv[])
     FILE *bmpImage;
     FILE *outputImage;
     HEADER bmpHeader;
-    PIXEL pixel;
 
     char inputFilePath[50] = "images/teste2.bmp";
-    char outputFilePath[50] = "images/teste1.bmp";
+    char outputFilePath[50] = "images/teste12.bmp";
 
     int shmid;
     int key = 4;
@@ -118,7 +117,11 @@ int main(int argc, char **argv[])
     medianFilter(pixels, rows, cols, 0, 1, 3);
     //=======================================
 
+    deallocPixelBitmap(pixelBitmap, rows);
+    allocPixelImageMatrix(&pixelBitmap, rows, cols);
+
     int arrayIndex;
+    PIXEL pixel;
     for (int i = 0; i < rows; i++)
     {
 
@@ -141,8 +144,7 @@ int main(int argc, char **argv[])
 
         for (int j = 0; j < alignment; j++)
         {
-            fread(&aux, sizeof(unsigned char), 1, bmpImage);
-            fwrite(&aux, sizeof(unsigned char), 1, outputImage);
+            fwrite(&pixelBitmap[i][j], sizeof(unsigned char), 1, outputImage);
         }
     }
 
@@ -176,7 +178,7 @@ void medianFilter(PIXEL *imageArray, int rows, int cols, int sequential, int num
         {
             maskArray = (PIXEL *)realloc(maskArray, maskSize * sizeof(PIXEL));
 
-            int maskStartingRow = MAX(offset / rows - maskOffsetFromStart, 0);
+            int maskStartingRow = MAX(offset / cols - maskOffsetFromStart, 0);
             int maskStartingCol = MAX(col - maskOffsetFromStart, 0);
 
             int maskStartingIndexInArray = maskStartingRow * cols + maskStartingCol;
@@ -220,25 +222,7 @@ void mapImageToArray(HEADER *header, PIXEL **pixelBitmap, PIXEL *pixels, FILE *f
      * podemos guardar seus valores em um espaço de memória compartilhado.
     */
 
-    int average;
     int arrayIndex;
-
-
-    for (int i = 0; i < header->height; i++)
-    {
-        for (int j = 0; j < header->width; j++)
-        {
-            fread(&pixelBitmap[i][j], sizeof(PIXEL), 1, file);
-        }
-    }
-
-
-    int alignment = (header->width * 3) % 4;
-
-    if (alignment != 0)
-    {
-        alignment = 4 - alignment;
-    }
 
     printFileDetails((*header));
 
@@ -246,6 +230,7 @@ void mapImageToArray(HEADER *header, PIXEL **pixelBitmap, PIXEL *pixels, FILE *f
     {
         for (int j = 0; j < header->width; j++)
         {
+            fread(&pixelBitmap[i][j], sizeof(PIXEL), 1, file);
             arrayIndex = i * header->width + j;
             pixels[arrayIndex].red = pixelBitmap[i][j].red;
             pixels[arrayIndex].green = pixelBitmap[i][j].green;
@@ -253,12 +238,8 @@ void mapImageToArray(HEADER *header, PIXEL **pixelBitmap, PIXEL *pixels, FILE *f
         }
     }
 
-    for (int j = 0; j < alignment; j++)
-    {
-        fread(&aux, sizeof(unsigned char), 1, file);
-    }
-}
 
+}
 
 void allocPixelImageMatrix(PIXEL ***pixelBitmap, int rows, int cols)
 {
