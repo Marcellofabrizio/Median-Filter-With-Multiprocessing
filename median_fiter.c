@@ -4,7 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/shm.h>
-// #include <sys/wait.h>
+#include <sys/wait.h>
 
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
@@ -86,11 +86,14 @@ int main(int argc, char **argv[])
     FILE *outputImage;
     HEADER bmpHeader;
 
-    char inputFilePath[50] = "images/teste2.bmp";
-    char outputFilePath[50] = "images/teste12.bmp";
+    char inputFilePath[50] = "images/samples/saltPepperBorboleta.bmp";
+    char outputFilePath[50] = "images/results/teste12.bmp";
 
+    int i, j;
     int shmid;
+    int pid, seq;
     int key = 4;
+    int np = 2;
 
     bmpImage = openFile(inputFilePath, "rb");
 
@@ -107,46 +110,84 @@ int main(int argc, char **argv[])
     PIXEL **pixelBitmap = NULL;
     allocPixelImageMatrix(&pixelBitmap, rows, cols);
 
-    PIXEL *pixels = malloc(sizeof(PIXEL) * arrayLenght);
-    //shmid = shmget(key, sizeof(PIXEL) * arrayLenght, IPC_CREAT | 0644);
-    //pixels = (PIXEL *)shmat(shmid, NULL, 0);
+    PIXEL *pixels = NULL;
+    // Aloca espaço de memória compartilhado entre os processos
+    shmid = shmget(key, sizeof(PIXEL) * arrayLenght, IPC_CREAT | 0644);
+    pixels = (PIXEL *)shmat(shmid, NULL, 0);
 
     mapImageToArray(&bmpHeader, pixelBitmap, pixels, bmpImage, outputImage);
 
-    //===== FAZER EM MULTIPROCESSAMENTO =====
-    medianFilter(pixels, rows, cols, 0, 1, 3);
-    //=======================================
+    //=========  MULTIPROCESSAMENTO =========
 
-    deallocPixelBitmap(pixelBitmap, rows);
-    allocPixelImageMatrix(&pixelBitmap, rows, cols);
+    seq = 0;
 
-    int arrayIndex;
-    PIXEL pixel;
-    for (int i = 0; i < rows; i++)
+    for (i = 1; i < np; i++)
     {
-
-        int alignment = (cols * 3) % 4;
-        if (alignment != 0)
-        {
-            alignment = 4 - alignment;
-        }
-
-        for (int j = 0; j < cols; j++)
-        {
-
-            arrayIndex = i * cols + j;
-
-            pixelBitmap[i][j].red = pixels[arrayIndex].red;
-            pixelBitmap[i][j].green = pixels[arrayIndex].green;
-            pixelBitmap[i][j].blue = pixels[arrayIndex].blue;
-            fwrite(&pixelBitmap[i][j], sizeof(PIXEL), 1, outputImage);
-        }
-
-        for (int j = 0; j < alignment; j++)
-        {
-            fwrite(&pixelBitmap[i][j], sizeof(unsigned char), 1, outputImage);
+        pid = fork();
+        if (pid == 0)
+        { //processo filho
+            seq = i;
+            break;
         }
     }
+
+    if (seq > 0)
+    {
+        printf("Sou pai de sequencial: %d\n", seq);
+    }
+    else
+    {
+        printf("Sou filho de sequencial: %d\n", seq);
+    }
+
+    medianFilter(pixels, rows, cols, seq, np, 3);
+
+    if (seq != 0)
+    {
+        shmdt(pixels);
+    }
+    else
+    {
+        for (i = 1; i < np; i++)
+        {
+            for (j = 1; j < np; j++)
+            {
+                wait(NULL);
+            }
+            // Fazer função writeImage()
+            int arrayIndex;
+            PIXEL pixel;
+            for (int i = 0; i < rows; i++)
+            {
+
+                int alignment = (cols * 3) % 4;
+                if (alignment != 0)
+                {
+                    alignment = 4 - alignment;
+                }
+
+                for (int j = 0; j < cols; j++)
+                {
+
+                    arrayIndex = i * cols + j;
+
+                    pixelBitmap[i][j].red = pixels[arrayIndex].red;
+                    pixelBitmap[i][j].green = pixels[arrayIndex].green;
+                    pixelBitmap[i][j].blue = pixels[arrayIndex].blue;
+                    fwrite(&pixelBitmap[i][j], sizeof(PIXEL), 1, outputImage);
+                }
+
+                for (int j = 0; j < alignment; j++)
+                {
+                    fwrite(&pixelBitmap[i][j], sizeof(unsigned char), 1, outputImage);
+                }
+            }
+            shmdt(pixels);
+            shmctl(shmid, IPC_RMID, 0);
+        }
+    }
+
+    //=======================================
 
     deallocPixelBitmap(pixelBitmap, rows);
     fclose(bmpImage);
@@ -237,8 +278,6 @@ void mapImageToArray(HEADER *header, PIXEL **pixelBitmap, PIXEL *pixels, FILE *f
             pixels[arrayIndex].blue = pixelBitmap[i][j].blue;
         }
     }
-
-
 }
 
 void allocPixelImageMatrix(PIXEL ***pixelBitmap, int rows, int cols)
