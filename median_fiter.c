@@ -86,14 +86,14 @@ int main(int argc, char **argv[])
     FILE *outputImage;
     HEADER bmpHeader;
 
-    char inputFilePath[50] = "images/samples/saltPepperBorboleta.bmp";
+    char inputFilePath[50] = "images/samples/saltPepperLena.bmp";
     char outputFilePath[50] = "images/results/teste12.bmp";
 
     int i, j;
     int shmid;
     int pid, seq;
     int key = 4;
-    int np = 2;
+    int np = 3;
 
     bmpImage = openFile(inputFilePath, "rb");
 
@@ -131,15 +131,6 @@ int main(int argc, char **argv[])
         }
     }
 
-    if (seq > 0)
-    {
-        printf("Sou pai de sequencial: %d\n", seq);
-    }
-    else
-    {
-        printf("Sou filho de sequencial: %d\n", seq);
-    }
-
     medianFilter(pixels, rows, cols, seq, np, 3);
 
     if (seq != 0)
@@ -154,36 +145,37 @@ int main(int argc, char **argv[])
             {
                 wait(NULL);
             }
-            // Fazer função writeImage()
-            int arrayIndex;
-            PIXEL pixel;
-            for (int i = 0; i < rows; i++)
-            {
 
-                int alignment = (cols * 3) % 4;
-                if (alignment != 0)
-                {
-                    alignment = 4 - alignment;
-                }
-
-                for (int j = 0; j < cols; j++)
-                {
-
-                    arrayIndex = i * cols + j;
-
-                    pixelBitmap[i][j].red = pixels[arrayIndex].red;
-                    pixelBitmap[i][j].green = pixels[arrayIndex].green;
-                    pixelBitmap[i][j].blue = pixels[arrayIndex].blue;
-                    fwrite(&pixelBitmap[i][j], sizeof(PIXEL), 1, outputImage);
-                }
-
-                for (int j = 0; j < alignment; j++)
-                {
-                    fwrite(&pixelBitmap[i][j], sizeof(unsigned char), 1, outputImage);
-                }
-            }
-            shmdt(pixels);
             shmctl(shmid, IPC_RMID, 0);
+        }
+    }
+    
+    // Fazer função writeImage()
+    int arrayIndex;
+    PIXEL pixel;
+    for (int i = 0; i < rows; i++)
+    {
+
+        int alignment = (cols * 3) % 4;
+        if (alignment != 0)
+        {
+            alignment = 4 - alignment;
+        }
+
+        for (int j = 0; j < cols; j++)
+        {
+
+            arrayIndex = i * cols + j;
+
+            pixelBitmap[i][j].red = pixels[arrayIndex].red;
+            pixelBitmap[i][j].green = pixels[arrayIndex].green;
+            pixelBitmap[i][j].blue = pixels[arrayIndex].blue;
+            fwrite(&pixelBitmap[i][j], sizeof(PIXEL), 1, outputImage);
+        }
+
+        for (int j = 0; j < alignment; j++)
+        {
+            fwrite(&pixelBitmap[i][j], sizeof(unsigned char), 1, outputImage);
         }
     }
 
