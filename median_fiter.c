@@ -56,7 +56,7 @@ void printFileDetails(HEADER header);
 void allocPixelImageMatrix(PIXEL ***pixelBitmap, int rows, int cols);
 void deallocPixelBitmap(PIXEL **pixelBitmap, int rows);
 void medianFilter(PIXEL *imageArray, int rows, int cols, int sequential, int numProcesses, int mask);
-void mapImageToArray(HEADER *header, PIXEL **pixelBitmap, PIXEL *pixels, FILE *file, FILE *fileout);
+void mapImageToArray(HEADER *header, PIXEL **pixelBitmap, PIXEL *pixels, FILE *file);
 void error(char filePath[50]);
 // =================================================================================================
 
@@ -89,11 +89,11 @@ int main(int argc, char **argv)
     FILE *outputImage;
     HEADER bmpHeader;
 
-    inputFilePath = "images/samples/saltPepperLena.bmp";
-    outputFilePath = "images/results/testeLena2P3M.bmp";
+    // inputFilePath = "images/samples/saltPepperLena.bmp";
+    // outputFilePath = "images/results/testeLena2P3M_2.bmp";
 
-    // inputFilePath = "images/samples/testeBuraco2.bmp";
-    // outputFilePath = "images/results/testeBuraco2P3M_2.bmp";
+    inputFilePath = "images/samples/testeBuraco2.bmp";
+    outputFilePath = "images/results/testeBuraco3P3M_6.bmp";
 
     int i, j;
     int shmid;
@@ -102,11 +102,7 @@ int main(int argc, char **argv)
 
     bmpImage = openFile(inputFilePath, "rb");
 
-    outputImage = openFile(outputFilePath, "wb");
-
     fread(&bmpHeader, sizeof(HEADER), 1, bmpImage);
-
-    fwrite(&bmpHeader, sizeof(HEADER), 1, outputImage);
 
     int rows = bmpHeader.height;
     int cols = bmpHeader.width;
@@ -115,14 +111,13 @@ int main(int argc, char **argv)
     PIXEL **pixelBitmap = NULL;
     allocPixelImageMatrix(&pixelBitmap, rows, cols);
 
-    // PIXEL *pixels = malloc(sizeof(PIXEL) * arrayLenght);
     PIXEL *pixels = NULL;
 
     // Aloca espaço de memória compartilhado entre os processos
     shmid = shmget(key, sizeof(PIXEL) * arrayLenght, IPC_CREAT | 0644);
     pixels = (PIXEL *)shmat(shmid, NULL, 0);
 
-    mapImageToArray(&bmpHeader, pixelBitmap, pixels, bmpImage, outputImage);
+    mapImageToArray(&bmpHeader, pixelBitmap, pixels, bmpImage);
 
     //=========  MULTIPROCESSAMENTO =========
 
@@ -138,57 +133,58 @@ int main(int argc, char **argv)
         }
     }
 
+    // mesmo sem filtro, deslocamento continua acontecendo
     medianFilter(pixels, rows, cols, seq, numProcesses, mask);
 
-    if (seq != 0)
+    if (seq != 0) //se for filho
     {
-        long arrayIndex;
-        PIXEL pixel;
-        for (int i = 0; i < rows; i++)
-        {
-
-            int alignment = (cols * 3) % 4;
-            if (alignment != 0)
-            {
-                alignment = 4 - alignment;
-            }
-
-            for (int j = 0; j < cols; j++)
-            {
-
-                arrayIndex = i * cols + j;
-
-                pixel.red = pixels[arrayIndex].red;
-                pixel.green = pixels[arrayIndex].green;
-                pixel.blue = pixels[arrayIndex].blue;
-                fwrite(&pixel, sizeof(PIXEL), 1, outputImage);
-            }
-
-            for (int j = 0; j < alignment; j++)
-            {
-                fwrite(&aux, sizeof(unsigned char), 1, outputImage);
-            }
-        }
-
         shmdt(pixels);
     }
-    else
+    else if (seq == 0) //se for pai
     {
-        for (i = 0; i < numProcesses; i++)
+        // filhos não caem aqui dentro, não entendo porque o número
+        // de processos está causando isso...
+
+        outputImage = openFile(outputFilePath, "wb");
+        fwrite(&bmpHeader, sizeof(HEADER), 1, outputImage);
+
+        for (i = 1; i < numProcesses; i++)
         {
             wait(NULL);
         }
+
+        long arrayIndex;
+        PIXEL pixel;
+
+        int alignment = (cols * 3) % 4;
+        if (alignment != 0)
+        {
+            alignment = 4 - alignment;
+        }
+
+        for (int i = 0; i < arrayLenght; i++)
+        {
+            pixel.red = pixels[i].red;
+            pixel.green = pixels[i].green;
+            pixel.blue = pixels[i].blue;
+            fwrite(&pixel, sizeof(PIXEL), 1, outputImage);
+        }
+
+        for (int j = 0; j < alignment; j++)
+        {
+            fread(&aux, sizeof(unsigned char), 1, bmpImage);
+            fwrite(&aux, sizeof(unsigned char), 1, outputImage);
+        }
+
+        shmdt(pixels);
         shmctl(shmid, IPC_RMID, NULL);
+        deallocPixelBitmap(pixelBitmap, rows);
+        fclose(bmpImage);
+        fclose(outputImage);
     }
 
     //=======================================
 
-    shmdt(pixels);
-    shmctl(shmid, IPC_RMID, NULL);
-
-    deallocPixelBitmap(pixelBitmap, rows);
-    fclose(bmpImage);
-    fclose(outputImage);
     return 0;
 }
 
@@ -205,7 +201,7 @@ void medianFilter(PIXEL *imageArray, int rows, int cols, int sequential, int num
 {
 
     int offset = cols * sequential;
-    long arrayLength = cols * rows; 
+    long arrayLength = cols * rows;
     int maskSize = mask * mask;
     PIXEL *maskArray = NULL;
     int maskOffsetFromStart = mask / 2;
@@ -229,9 +225,9 @@ void medianFilter(PIXEL *imageArray, int rows, int cols, int sequential, int num
             {
                 for (int maskCol = maskStartingCol, k = 0; k < mask && k < cols; k++, maskCol++)
                 {
-                    // uso long pq imagens muito grandes estam resultando 
+                    // uso long pq imagens muito grandes estam resultando
                     // em um valor maior que o de um inteiro
-                    long arrayIndex = maskRow * cols + maskCol; 
+                    long arrayIndex = maskRow * cols + maskCol;
                     maskArray[i++] = imageArray[arrayIndex];
                 }
             }
@@ -254,7 +250,7 @@ void medianFilter(PIXEL *imageArray, int rows, int cols, int sequential, int num
     }
 }
 
-void mapImageToArray(HEADER *header, PIXEL **pixelBitmap, PIXEL *pixels, FILE *file, FILE *fileout)
+void mapImageToArray(HEADER *header, PIXEL **pixelBitmap, PIXEL *pixels, FILE *file)
 {
 
     /**
@@ -262,19 +258,20 @@ void mapImageToArray(HEADER *header, PIXEL **pixelBitmap, PIXEL *pixels, FILE *f
      * podemos guardar seus valores em um espaço de memória compartilhado.
     */
 
-    int arrayIndex;
+    long arrayIndex;
+    PIXEL pixel;
 
-    printFileDetails((*header));
+    // printFileDetails((*header));
 
     for (int i = 0; i < header->height; i++)
     {
         for (int j = 0; j < header->width; j++)
         {
-            fread(&pixelBitmap[i][j], sizeof(PIXEL), 1, file);
+            fread(&pixel, sizeof(PIXEL), 1, file);
             arrayIndex = i * header->width + j;
-            pixels[arrayIndex].red = pixelBitmap[i][j].red;
-            pixels[arrayIndex].green = pixelBitmap[i][j].green;
-            pixels[arrayIndex].blue = pixelBitmap[i][j].blue;
+            pixels[arrayIndex].red = pixel.red;
+            pixels[arrayIndex].green = pixel.green;
+            pixels[arrayIndex].blue = pixel.blue;
         }
     }
 }
