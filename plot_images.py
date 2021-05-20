@@ -15,6 +15,8 @@ image_B = mpimg.imread(image_B_path)
 
 fig, ax = plt.subplots(1, 2)
 
+ax[0].axis('off')
+ax[1].axis('off')
 ax[0].imshow(image_A)
 ax[1].imshow(image_B)
 plt.show()

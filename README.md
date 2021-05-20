@@ -1,0 +1,1 @@
+![comparação de imagens](graphs/comparison_filter.png)
