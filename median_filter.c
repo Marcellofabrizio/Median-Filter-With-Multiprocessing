@@ -5,6 +5,8 @@
 #include <unistd.h>
 #include <sys/shm.h>
 #include <sys/wait.h>
+#include <semaphore.h>
+#include <pthread.h>
 
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 
@@ -19,6 +21,16 @@ typedef struct pixel
     uint8_t green;
     uint8_t red;
 } PIXEL;
+
+typedef struct arguments
+{
+    PIXEL *imageArray;
+    int rows;
+    int cols;
+    int sequential;
+    int numThreads;
+    int mask;
+} ARGUMENTS;
 
 typedef struct bmpHeader
 {
@@ -55,7 +67,7 @@ FILE *openFile(char filePath[50], char mode[3]);
 void printFileDetails(HEADER header);
 void allocPixelImageMatrix(PIXEL ***pixelBitmap, int rows, int cols);
 void deallocPixelBitmap(PIXEL **pixelBitmap, int rows);
-void medianFilter(PIXEL *imageArray, int rows, int cols, int sequential, int numProcesses, int mask);
+void *medianFilter(void *args);
 void mapImageToArray(HEADER *header, PIXEL **pixelBitmap, PIXEL *pixels, FILE *file);
 void error(char filePath[50], char message[100]);
 // =================================================================================================
@@ -78,8 +90,8 @@ const char *getFilenameExt(const char *filename)
 
 int isBmpFile(const char *filename)
 {
-    const char *ext = getFilenameExt(filename); 
-    
+    const char *ext = getFilenameExt(filename);
+
     return strcmp(ext, "bmp");
 }
 
@@ -90,29 +102,31 @@ int main(int argc, char **argv)
 
     if (argc != 4)
     {
-        printf("<NumberProcesses> <MaskSize> <InputFilePath>\n");
+        printf("<NumberOfThreads> <MaskSize> <InputFilePath>\n");
         exit(0);
     }
 
-    int numProcesses, mask;
-    numProcesses = atoi(argv[1]);
+    int numThreads, mask;
+    numThreads = atoi(argv[1]);
     mask = atoi(argv[2]);
 
     char *inputFilePath = argv[3];
     char *outputFilePath = "images/results/correctedImage.bmp";
 
+    pthread_t *t_id = NULL;
+
     FILE *bmpImage;
     FILE *outputImage;
     HEADER bmpHeader;
+    ARGUMENTS *arguments = NULL;
 
     int i, j;
-    int shmid;
     int pid, seq;
     int key = 4;
 
     bmpImage = openFile(inputFilePath, "rb");
 
-    if(isBmpFile(inputFilePath))
+    if (isBmpFile(inputFilePath))
     {
         error(inputFilePath, "Arquivo deve ser do tipo .bmp");
     }
@@ -128,75 +142,79 @@ int main(int argc, char **argv)
 
     PIXEL *pixels = NULL;
 
-    // Aloca espaço de memória compartilhado entre os processos
-    shmid = shmget(key, sizeof(PIXEL) * arrayLenght, IPC_CREAT | 0644);
-    pixels = (PIXEL *)shmat(shmid, NULL, 0);
+    // Aloca espaço de memória compartilhado entre as threads
+    // shmid = shmget(key, sizeof(PIXEL) * arrayLenght, IPC_CREAT | 0644);
+    // pixels = (PIXEL *)shmat(shmid, NULL, 0);
+    pixels = (PIXEL *)malloc(sizeof(PIXEL) * arrayLenght);
 
     mapImageToArray(&bmpHeader, pixelBitmap, pixels, bmpImage);
 
-    //=========  MULTIPROCESSAMENTO =========
+    //=========  MULTIPROCESSAMENTO COM THREADS =========
 
-    seq = 0;
+    //inicializa threads
+    t_id = (pthread_t *)malloc(numThreads * sizeof(pthread_t));
+    arguments = (ARGUMENTS *)malloc(numThreads * sizeof(ARGUMENTS));
 
-    for (i = 1; i < numProcesses; i++)
+    for (i = 0; i < numThreads; i++)
     {
-        pid = fork();
-        if (pid == 0)
-        { //processo filho
-            seq = i;
-            break;
-        }
+        arguments[i].imageArray = pixels;
+        arguments[i].rows = rows;
+        arguments[i].cols = cols;
+        arguments[i].sequential = i;
+        arguments[i].numThreads = numThreads;
+        arguments[i].mask = mask;
+        pthread_create(&t_id[i], NULL, medianFilter, (void *)&arguments[i]);
     }
 
-    // mesmo sem filtro, deslocamento continua acontecendo
-    medianFilter(pixels, rows, cols, seq, numProcesses, mask);
-
-    if (seq != 0) //se for filho
+    for (i = 0; i < numThreads; i++)
     {
-        shmdt(pixels);
+        pthread_join(t_id[i], NULL);
     }
-    else if (seq == 0) //se for pai
+
+    printf("\n\n\n");
+
+    for (int arrayIndex = 0; arrayIndex < 100; arrayIndex++)
     {
-        // filhos não caem aqui dentro, não entendo porque o número
-        // de processos está causando isso...
-
-        outputImage = openFile(outputFilePath, "wb");
-        fwrite(&bmpHeader, sizeof(HEADER), 1, outputImage);
-
-        for (i = 1; i < numProcesses; i++)
-        {
-            wait(NULL);
-        }
-
-        long arrayIndex;
-        PIXEL pixel;
-
-        int alignment = (cols * 3) % 4;
-        if (alignment != 0)
-        {
-            alignment = 4 - alignment;
-        }
-
-        for (int i = 0; i < arrayLenght; i++)
-        {
-            pixel.red = pixels[i].red;
-            pixel.green = pixels[i].green;
-            pixel.blue = pixels[i].blue;
-            fwrite(&pixel, sizeof(PIXEL), 1, outputImage);
-        }
-
-        for (int j = 0; j < alignment; j++)
-        {
-            fread(&aux, sizeof(unsigned char), 1, bmpImage);
-            fwrite(&aux, sizeof(unsigned char), 1, outputImage);
-        }
-
-        shmdt(pixels);
-        shmctl(shmid, IPC_RMID, NULL);
-        deallocPixelBitmap(pixelBitmap, rows);
-        fclose(bmpImage);
-        fclose(outputImage);
+        printf("%d %d %d",
+               pixels[arrayIndex].red,
+               pixels[arrayIndex].green,
+               pixels[arrayIndex].blue);
     }
+
+    outputImage = openFile(outputFilePath, "wb");
+    fwrite(&bmpHeader, sizeof(HEADER), 1, outputImage);
+
+    for (i = 1; i < numThreads; i++)
+    {
+        wait(NULL);
+    }
+
+    long arrayIndex;
+    PIXEL pixel;
+
+    int alignment = (cols * 3) % 4;
+    if (alignment != 0)
+    {
+        alignment = 4 - alignment;
+    }
+
+    for (int i = 0; i < arrayLenght; i++)
+    {
+        pixel.red = pixels[i].red;
+        pixel.green = pixels[i].green;
+        pixel.blue = pixels[i].blue;
+        fwrite(&pixel, sizeof(PIXEL), 1, outputImage);
+    }
+
+    for (int j = 0; j < alignment; j++)
+    {
+        fread(&aux, sizeof(unsigned char), 1, bmpImage);
+        fwrite(&aux, sizeof(unsigned char), 1, outputImage);
+    }
+
+    deallocPixelBitmap(pixelBitmap, rows);
+    fclose(bmpImage);
+    fclose(outputImage);
 
     //=======================================
 
@@ -212,14 +230,33 @@ FILE *openFile(char filePath[50], char mode[3])
     }
 }
 
-void medianFilter(PIXEL *imageArray, int rows, int cols, int sequential, int numProcesses, int mask)
+void *medianFilter(void *args)
 {
+    // PIXEL *imageArray, int rows, int cols, int sequential, int numThreads, int mask
+
+    printf("Oi");
+    ARGUMENTS *argument = (ARGUMENTS *)args;
+
+    PIXEL *imageArray = argument->imageArray;
+    int rows = argument->rows;
+    int cols = argument->cols;
+    int sequential = argument->sequential;
+    int numThreads = argument->numThreads;
+    int mask = argument->mask;
 
     int offset = cols * sequential;
     long arrayLength = cols * rows;
     int maskSize = mask * mask;
     PIXEL *maskArray = NULL;
     int maskOffsetFromStart = mask / 2;
+
+    for (int arrayIndex = 0; arrayIndex < 100; arrayIndex++)
+    {
+        printf("%d %d %d",
+               imageArray[arrayIndex].red,
+               imageArray[arrayIndex].green,
+               imageArray[arrayIndex].blue);
+    }
 
     while (offset < arrayLength)
     {
@@ -233,21 +270,14 @@ void medianFilter(PIXEL *imageArray, int rows, int cols, int sequential, int num
             int maskStartingIndexInArray = maskStartingRow * cols + maskStartingCol;
 
             int i = 0;
-            // fiz uma lógica para achar um ponto valido da máscara no array.
-            // pensei numa maneira de simular que estamos navegando uma matriz, sendo que
-            // na verdade temos apenas um array.
             for (int maskRow = maskStartingRow, j = 0; j < mask && j < rows; j++, maskRow++)
             {
                 for (int maskCol = maskStartingCol, k = 0; k < mask && k < cols; k++, maskCol++)
                 {
-                    // uso long pq imagens muito grandes estam resultando
-                    // em um valor maior que o de um inteiro
                     long arrayIndex = maskRow * cols + maskCol;
                     maskArray[i++] = imageArray[arrayIndex];
                 }
             }
-
-            // ordena nosso array de valor para extrairmos a mediana
 
             qsort(maskArray, maskSize, sizeof(PIXEL), cmpfunc);
             PIXEL newValue = {0, 0, 0};
@@ -260,7 +290,7 @@ void medianFilter(PIXEL *imageArray, int rows, int cols, int sequential, int num
             imageArray[arrayIndex].blue = newValue.blue;
         }
 
-        sequential = sequential + numProcesses;
+        sequential = sequential + numThreads;
         offset = cols * sequential;
     }
 }
@@ -322,7 +352,7 @@ void printFileDetails(HEADER header)
 void error(char filePath[50], char message[100])
 {
     printf("Erro ao abrir arquivo %s\n", filePath);
-    if(message)
+    if (message)
         printf("%s\n", message);
     exit(0);
 }
