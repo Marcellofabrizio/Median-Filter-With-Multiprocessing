@@ -171,16 +171,6 @@ int main(int argc, char **argv)
         pthread_join(t_id[i], NULL);
     }
 
-    printf("\n\n\n");
-
-    for (int arrayIndex = 0; arrayIndex < 100; arrayIndex++)
-    {
-        printf("%d %d %d",
-               pixels[arrayIndex].red,
-               pixels[arrayIndex].green,
-               pixels[arrayIndex].blue);
-    }
-
     outputImage = openFile(outputFilePath, "wb");
     fwrite(&bmpHeader, sizeof(HEADER), 1, outputImage);
 
@@ -234,7 +224,6 @@ void *medianFilter(void *args)
 {
     // PIXEL *imageArray, int rows, int cols, int sequential, int numThreads, int mask
 
-    printf("Oi");
     ARGUMENTS *argument = (ARGUMENTS *)args;
 
     PIXEL *imageArray = argument->imageArray;
@@ -250,13 +239,6 @@ void *medianFilter(void *args)
     PIXEL *maskArray = NULL;
     int maskOffsetFromStart = mask / 2;
 
-    for (int arrayIndex = 0; arrayIndex < 100; arrayIndex++)
-    {
-        printf("%d %d %d",
-               imageArray[arrayIndex].red,
-               imageArray[arrayIndex].green,
-               imageArray[arrayIndex].blue);
-    }
 
     while (offset < arrayLength)
     {
