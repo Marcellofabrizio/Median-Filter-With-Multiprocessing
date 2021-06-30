@@ -75,8 +75,8 @@ void error(char filePath[50], char message[100]);
 int cmpfunc(const void *a, const void *b)
 {
     // função de comparação para o quick sort
-    int totalA = (((PIXEL *)a)->red + ((PIXEL *)a)->green + ((PIXEL *)a)->blue) / 3;
-    int totalB = (((PIXEL *)b)->red + ((PIXEL *)b)->green + ((PIXEL *)b)->blue) / 3;
+    int totalA = (((PIXEL *)a)->red + ((PIXEL *)a)->green + ((PIXEL *)a)->blue);
+    int totalB = (((PIXEL *)b)->red + ((PIXEL *)b)->green + ((PIXEL *)b)->blue);
     return totalB - totalA;
 }
 
