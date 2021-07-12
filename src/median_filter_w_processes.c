@@ -148,7 +148,6 @@ int main(int argc, char **argv)
         }
     }
 
-    // mesmo sem filtro, deslocamento continua acontecendo
     medianFilter(pixels, rows, cols, seq, numProcesses, mask);
 
     if (seq != 0) //se for filho
@@ -157,9 +156,6 @@ int main(int argc, char **argv)
     }
     else if (seq == 0) //se for pai
     {
-        // filhos não caem aqui dentro, não entendo porque o número
-        // de processos está causando isso...
-
         outputImage = openFile(outputFilePath, "wb");
         fwrite(&bmpHeader, sizeof(HEADER), 1, outputImage);
 

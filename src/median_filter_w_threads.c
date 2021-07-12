@@ -149,6 +149,7 @@ int main(int argc, char **argv)
 
     mapImageToArray(&bmpHeader, pixelBitmap, pixels, bmpImage);
 
+    printFileDetails(bmpHeader);
     //=========  MULTIPROCESSAMENTO COM THREADS =========
 
     //inicializa threads
